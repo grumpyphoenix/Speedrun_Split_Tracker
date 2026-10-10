@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Red plumber-style cap seen from the front, with a "J" emblem. Kept inside the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Crown -->
+    <path
+        android:fillColor="#E52521"
+        android:strokeColor="#7A0E0C"
+        android:strokeWidth="1.5"
+        android:pathData="M25,62 C25,40 38,27 54,27 C70,27 83,40 83,62 Z" />
+    <!-- Highlight on the crown -->
+    <path
+        android:fillColor="#33FFFFFF"
+        android:pathData="M31,52 C32,40 40,32 49,30 C42,35 36,43 35,53 Z" />
+    <!-- Brim -->
+    <path
+        android:fillColor="#B71C1C"
+        android:strokeColor="#7A0E0C"
+        android:strokeWidth="1.5"
+        android:pathData="M23,61 C38,56 70,56 85,61 C87,68 78,73 54,73 C30,73 21,68 23,61 Z" />
+    <!-- Emblem -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:strokeColor="#7A0E0C"
+        android:strokeWidth="1"
+        android:pathData="M43,44 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0 Z" />
+    <!-- Letter J -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#E52521"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M50,37.5 H59 M56.5,37.5 V46 C56.5,51 49.5,51.5 49,47" />
+</vector>

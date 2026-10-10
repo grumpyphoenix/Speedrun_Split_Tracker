@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Single-color cap for themed icons: only alpha matters, so the emblem is cut out and the J drawn back in. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M25,62 C25,40 38,27 54,27 C70,27 83,40 83,62 Z M43,44 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M23,63 C38,58 70,58 85,63 C87,68 78,73 54,73 C30,73 21,68 23,63 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M50,37.5 H59 M56.5,37.5 V46 C56.5,51 49.5,51.5 49,47" />
+</vector>
