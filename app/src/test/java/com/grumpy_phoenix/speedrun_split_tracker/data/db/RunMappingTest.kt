@@ -7,7 +7,7 @@ import org.junit.Test
 class RunMappingTest {
 
     private fun roundTrip(record: RunRecord) =
-        RunWithSplits(record.toEntity(), record.toSplitEntities().reversed()).toRecord()
+        RunWithSplits(record.toEntity(runFileId = 1), record.toSplitEntities().reversed()).toRecord()
 
     @Test
     fun completedRunSurvivesRoundTrip() {

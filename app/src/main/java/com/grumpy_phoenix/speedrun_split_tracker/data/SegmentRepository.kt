@@ -1,27 +1,29 @@
 package com.grumpy_phoenix.speedrun_split_tracker.data
 
+import com.grumpy_phoenix.speedrun_split_tracker.data.db.RunFileSegmentEntity
 import com.grumpy_phoenix.speedrun_split_tracker.data.db.SegmentDao
-import com.grumpy_phoenix.speedrun_split_tracker.data.db.SegmentDraftEntity
 
-/** Remembers the segment list from the setup screen between app starts. */
+/** The editable segment list of each run file. */
 interface SegmentRepository {
-    suspend fun load(): List<String>
-    suspend fun save(names: List<String>)
+    suspend fun load(runFileId: Long): List<String>
+    suspend fun save(runFileId: Long, names: List<String>)
 }
 
 class InMemorySegmentRepository : SegmentRepository {
-    private var names = emptyList<String>()
+    private val names = mutableMapOf<Long, List<String>>()
 
-    override suspend fun load(): List<String> = names
+    override suspend fun load(runFileId: Long): List<String> = names[runFileId].orEmpty()
 
-    override suspend fun save(names: List<String>) {
-        this.names = names
+    override suspend fun save(runFileId: Long, names: List<String>) {
+        this.names[runFileId] = names
     }
 }
 
 class RoomSegmentRepository(private val dao: SegmentDao) : SegmentRepository {
-    override suspend fun load(): List<String> = dao.getAll().map { it.name }
+    override suspend fun load(runFileId: Long): List<String> = dao.getAll(runFileId).map { it.name }
 
-    override suspend fun save(names: List<String>) =
-        dao.replaceAll(names.mapIndexed { index, name -> SegmentDraftEntity(index, name) })
+    override suspend fun save(runFileId: Long, names: List<String>) = dao.replaceAll(
+        runFileId,
+        names.mapIndexed { index, name -> RunFileSegmentEntity(runFileId, index, name) },
+    )
 }

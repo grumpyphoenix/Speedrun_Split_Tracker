@@ -13,4 +13,11 @@ data class RunRecord(
     /** Cumulative split times; shorter than [segmentNames] when the run was reset early. */
     val splitTimesMs: List<Long>,
     val completed: Boolean,
-)
+) {
+    /** Duration of the segment at [index], or null if the run never split it. */
+    fun segmentDurationMs(index: Int): Long? {
+        val end = splitTimesMs.getOrNull(index) ?: return null
+        val begin = if (index == 0) 0L else splitTimesMs[index - 1]
+        return end - begin
+    }
+}

@@ -3,14 +3,11 @@ package com.grumpy_phoenix.speedrun_split_tracker.ui.setup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -30,15 +27,14 @@ import androidx.compose.ui.unit.dp
 import com.grumpy_phoenix.speedrun_split_tracker.ui.SegmentDraft
 import com.grumpy_phoenix.speedrun_split_tracker.ui.theme.Speedrun_Split_TrackerTheme
 
+/** Editable, reorderable list of segment names. */
 @Composable
-fun SegmentSetupScreen(
+fun SegmentEditor(
     drafts: List<SegmentDraft>,
-    canStart: Boolean,
     onAdd: () -> Unit,
     onRename: (id: Long, name: String) -> Unit,
     onRemove: (id: Long) -> Unit,
     onMove: (id: Long, offset: Int) -> Unit,
-    onStart: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -49,8 +45,7 @@ fun SegmentSetupScreen(
         if (focusNewSegment && drafts.isNotEmpty()) listState.animateScrollToItem(drafts.lastIndex)
     }
 
-    Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
-        Text("Segments", style = MaterialTheme.typography.headlineMedium)
+    Column(modifier = modifier) {
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).padding(vertical = 8.dp),
@@ -95,32 +90,24 @@ fun SegmentSetupScreen(
             modifier = Modifier.fillMaxWidth()) {
             Text("Add segment")
         }
-        Button(
-            onClick = onStart,
-            enabled = canStart,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        ) {
-            Text("Start")
-        }
     }
 }
 
 @Preview(showBackground = true)
 @Composable
-private fun SegmentSetupScreenPreview() {
+private fun SegmentEditorPreview() {
     Speedrun_Split_TrackerTheme {
-        SegmentSetupScreen(
+        SegmentEditor(
             drafts = listOf(
                 SegmentDraft(0, "Tutorial"),
                 SegmentDraft(1, "Forest"),
                 SegmentDraft(2, "Final Boss"),
             ),
-            canStart = true,
             onAdd = {},
             onRename = { _, _ -> },
             onRemove = {},
             onMove = { _, _ -> },
-            onStart = {},
+            modifier = Modifier.padding(16.dp),
         )
     }
 }

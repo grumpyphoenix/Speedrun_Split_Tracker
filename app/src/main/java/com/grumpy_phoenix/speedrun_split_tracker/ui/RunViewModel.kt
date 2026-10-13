@@ -7,29 +7,34 @@ import androidx.lifecycle.viewModelScope
 import com.grumpy_phoenix.speedrun_split_tracker.data.RunRepository
 import com.grumpy_phoenix.speedrun_split_tracker.data.SegmentRepository
 import com.grumpy_phoenix.speedrun_split_tracker.domain.Clock
+import com.grumpy_phoenix.speedrun_split_tracker.domain.RunFile
 import com.grumpy_phoenix.speedrun_split_tracker.domain.RunRecord
 import com.grumpy_phoenix.speedrun_split_tracker.domain.TimerPhase
 import com.grumpy_phoenix.speedrun_split_tracker.domain.TimerState
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-enum class Screen { Setup, Timer }
+enum class Screen { Library, RunFile, Timer }
 
 /** A segment name being edited; the id keeps list items stable while reordering. */
 data class SegmentDraft(val id: Long, val name: String)
 
 data class RunUiState(
-    val screen: Screen = Screen.Setup,
+    val screen: Screen = Screen.Library,
+    /** The run file being edited or run; null while browsing the library. */
+    val runFile: RunFile? = null,
     val drafts: List<SegmentDraft> = listOf(SegmentDraft(id = 0, name = "")),
+    /** Stored attempts of [runFile], newest first. */
+    val runs: List<RunRecord> = emptyList(),
     val timer: TimerState = TimerState(segments = emptyList()),
 ) {
     val canStart: Boolean get() = drafts.any { it.name.isNotBlank() }
@@ -46,32 +51,56 @@ class RunViewModel(
     val state: StateFlow<RunUiState> = _state.asStateFlow()
 
     private var nextDraftId = 1L
+    private var runsJob: Job? = null
 
     init {
         viewModelScope.launch {
-            restoreSegments()
             // Persist edits once typing pauses, rather than on every keystroke.
-            _state.map { s -> s.drafts.map { it.name } }
+            // runFile and drafts always change together, so a pair never mixes two files.
+            _state.mapNotNull { s -> s.runFile?.let { it.id to s.drafts.map { d -> d.name } } }
                 .distinctUntilChanged()
-                .drop(1)
                 .debounce(SEGMENT_SAVE_DEBOUNCE_MS)
-                .collect { segmentRepository.save(it) }
-        }
-    }
-
-    private suspend fun restoreSegments() {
-        val names = segmentRepository.load()
-        if (names.isEmpty()) return
-        _state.update { s ->
-            // Don't clobber edits made while loading.
-            if (s.drafts != RunUiState().drafts) return@update s
-            s.copy(drafts = names.map { SegmentDraft(nextDraftId++, it) })
+                .collect { (runFileId, names) -> segmentRepository.save(runFileId, names) }
         }
     }
 
     // Identity of the current attempt, so re-saving (e.g. after undoing the final split) replaces it.
     private var attemptId = UUID.randomUUID().toString()
     private var attemptStartedAtEpochMs = 0L
+
+    // --- Run file ---
+
+    fun openRunFile(runFile: RunFile) {
+        viewModelScope.launch {
+            val names = segmentRepository.load(runFile.id).ifEmpty { listOf("") }
+            _state.update {
+                it.copy(
+                    screen = Screen.RunFile,
+                    runFile = runFile,
+                    drafts = names.map { name -> SegmentDraft(nextDraftId++, name) },
+                )
+            }
+        }
+        runsJob?.cancel()
+        runsJob = viewModelScope.launch {
+            repository.runs(runFile.id).collect { runs -> _state.update { it.copy(runs = runs) } }
+        }
+    }
+
+    /** Saves pending segment edits right away and returns to the library. */
+    fun closeRunFile() {
+        val s = _state.value
+        s.runFile?.let { file ->
+            val names = s.drafts.map { it.name }
+            viewModelScope.launch { segmentRepository.save(file.id, names) }
+        }
+        runsJob?.cancel()
+        _state.value = RunUiState()
+    }
+
+    fun deleteRun(runId: String) {
+        viewModelScope.launch { repository.delete(runId) }
+    }
 
     // --- Segment setup ---
 
@@ -97,9 +126,10 @@ class RunViewModel(
 
     fun startRun() {
         val s = _state.value
+        val file = s.runFile ?: return
         if (!s.canStart) return
         val names = s.drafts.map { it.name }
-        viewModelScope.launch { segmentRepository.save(names) }
+        viewModelScope.launch { segmentRepository.save(file.id, names) }
         val segments = names.map { it.trim() }.filter { it.isNotEmpty() }
         _state.update { it.copy(screen = Screen.Timer, timer = TimerState(segments)) }
     }
@@ -132,14 +162,16 @@ class RunViewModel(
 
     fun backToSetup() {
         reset()
-        _state.update { it.copy(screen = Screen.Setup) }
+        _state.update { it.copy(screen = Screen.RunFile) }
     }
 
     private fun updateTimer(transform: (TimerState) -> TimerState) =
         _state.update { it.copy(timer = transform(it.timer)) }
 
     private fun saveAttempt() {
-        val timer = _state.value.timer
+        val s = _state.value
+        val file = s.runFile ?: return
+        val timer = s.timer
         if (!timer.hasStarted) return
         val record = RunRecord(
             id = attemptId,
@@ -148,7 +180,7 @@ class RunViewModel(
             splitTimesMs = timer.splitTimesMs,
             completed = timer.phase == TimerPhase.Finished,
         )
-        viewModelScope.launch { repository.save(record) }
+        viewModelScope.launch { repository.save(file.id, record) }
     }
 
     private companion object {

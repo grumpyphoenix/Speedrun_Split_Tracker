@@ -26,25 +26,65 @@ interface RunDao {
         insertSplits(splits)
     }
 
+    /** Cascades to the run's splits. */
+    @Query("DELETE FROM runs WHERE id = :runId")
+    suspend fun delete(runId: String)
+
+    /** Newest first. */
     @Transaction
-    @Query("SELECT * FROM runs ORDER BY startedAtEpochMs")
-    fun runs(): Flow<List<RunWithSplits>>
+    @Query("SELECT * FROM runs WHERE runFileId = :runFileId ORDER BY startedAtEpochMs DESC")
+    fun runs(runFileId: Long): Flow<List<RunWithSplits>>
 }
 
 @Dao
 interface SegmentDao {
-    @Query("SELECT * FROM segment_drafts ORDER BY position")
-    suspend fun getAll(): List<SegmentDraftEntity>
+    @Query("SELECT * FROM run_file_segments WHERE runFileId = :runFileId ORDER BY position")
+    suspend fun getAll(runFileId: Long): List<RunFileSegmentEntity>
 
-    @Query("DELETE FROM segment_drafts")
-    suspend fun deleteAll()
+    @Query("DELETE FROM run_file_segments WHERE runFileId = :runFileId")
+    suspend fun deleteAll(runFileId: Long)
 
     @Insert
-    suspend fun insertAll(segments: List<SegmentDraftEntity>)
+    suspend fun insertAll(segments: List<RunFileSegmentEntity>)
 
     @Transaction
-    suspend fun replaceAll(segments: List<SegmentDraftEntity>) {
-        deleteAll()
+    suspend fun replaceAll(runFileId: Long, segments: List<RunFileSegmentEntity>) {
+        deleteAll(runFileId)
         insertAll(segments)
     }
+}
+
+@Dao
+interface LibraryDao {
+    @Query("SELECT * FROM folders WHERE parentId IS :parentId ORDER BY name COLLATE NOCASE")
+    fun folders(parentId: Long?): Flow<List<FolderEntity>>
+
+    @Query("SELECT * FROM run_files WHERE folderId IS :folderId ORDER BY name COLLATE NOCASE")
+    fun runFiles(folderId: Long?): Flow<List<RunFileEntity>>
+
+    @Query("SELECT * FROM folders WHERE id = :id")
+    suspend fun folder(id: Long): FolderEntity?
+
+    @Query("SELECT * FROM run_files WHERE id = :id")
+    suspend fun runFile(id: Long): RunFileEntity?
+
+    @Insert
+    suspend fun insertFolder(folder: FolderEntity): Long
+
+    @Insert
+    suspend fun insertRunFile(runFile: RunFileEntity): Long
+
+    @Query("UPDATE folders SET name = :name WHERE id = :id")
+    suspend fun renameFolder(id: Long, name: String)
+
+    @Query("UPDATE run_files SET name = :name WHERE id = :id")
+    suspend fun renameRunFile(id: Long, name: String)
+
+    /** Cascades to subfolders, run files, runs and splits. */
+    @Query("DELETE FROM folders WHERE id = :id")
+    suspend fun deleteFolder(id: Long)
+
+    /** Cascades to the file's segments, runs and splits. */
+    @Query("DELETE FROM run_files WHERE id = :id")
+    suspend fun deleteRunFile(id: Long)
 }

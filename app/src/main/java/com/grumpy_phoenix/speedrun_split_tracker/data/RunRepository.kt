@@ -7,33 +7,40 @@ import com.grumpy_phoenix.speedrun_split_tracker.data.db.toSplitEntities
 import com.grumpy_phoenix.speedrun_split_tracker.domain.RunRecord
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 
-/** Stores every attempt, finished or reset. */
+/** Stores every attempt, finished or reset, per run file. */
 interface RunRepository {
     /** Inserts the run, or replaces the stored run with the same id. */
-    suspend fun save(run: RunRecord)
-    fun runs(): Flow<List<RunRecord>>
+    suspend fun save(runFileId: Long, run: RunRecord)
+
+    suspend fun delete(runId: String)
+
+    /** Runs of one run file, newest first. */
+    fun runs(runFileId: Long): Flow<List<RunRecord>>
 }
 
 class InMemoryRunRepository : RunRepository {
-    private val store = MutableStateFlow<List<RunRecord>>(emptyList())
+    private val store = MutableStateFlow<List<Pair<Long, RunRecord>>>(emptyList())
 
-    override suspend fun save(run: RunRecord) {
-        store.update { runs ->
-            val index = runs.indexOfFirst { it.id == run.id }
-            if (index < 0) runs + run else runs.toMutableList().apply { set(index, run) }
-        }
+    override suspend fun save(runFileId: Long, run: RunRecord) {
+        store.update { runs -> runs.filterNot { it.second.id == run.id } + (runFileId to run) }
     }
 
-    override fun runs(): Flow<List<RunRecord>> = store.asStateFlow()
+    override suspend fun delete(runId: String) = store.update { runs -> runs.filterNot { it.second.id == runId } }
+
+    override fun runs(runFileId: Long): Flow<List<RunRecord>> = store.map { runs ->
+        runs.filter { it.first == runFileId }.map { it.second }.sortedByDescending { it.startedAtEpochMs }
+    }
 }
 
 class RoomRunRepository(private val dao: RunDao) : RunRepository {
-    override suspend fun save(run: RunRecord) = dao.save(run.toEntity(), run.toSplitEntities())
+    override suspend fun save(runFileId: Long, run: RunRecord) =
+        dao.save(run.toEntity(runFileId), run.toSplitEntities())
 
-    override fun runs(): Flow<List<RunRecord>> =
-        dao.runs().map { runs -> runs.map { it.toRecord() } }
+    override suspend fun delete(runId: String) = dao.delete(runId)
+
+    override fun runs(runFileId: Long): Flow<List<RunRecord>> =
+        dao.runs(runFileId).map { runs -> runs.map { it.toRecord() } }
 }
