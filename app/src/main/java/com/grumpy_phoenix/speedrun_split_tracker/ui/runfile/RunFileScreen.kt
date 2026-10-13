@@ -57,6 +57,7 @@ fun RunFileScreen(
     onMoveSegment: (id: Long, offset: Int) -> Unit,
     onStart: () -> Unit,
     onDeleteRun: (runId: String) -> Unit,
+    onExportLss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
@@ -69,7 +70,9 @@ fun RunFileScreen(
                 style = MaterialTheme.typography.headlineMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
+            TextButton(onClick = onExportLss) { Text("Export") }
         }
         PrimaryTabRow(selectedTabIndex = selectedTab) {
             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Segments") })

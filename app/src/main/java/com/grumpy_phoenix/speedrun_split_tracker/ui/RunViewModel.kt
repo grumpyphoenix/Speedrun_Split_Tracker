@@ -6,21 +6,31 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grumpy_phoenix.speedrun_split_tracker.data.RunRepository
 import com.grumpy_phoenix.speedrun_split_tracker.data.SegmentRepository
+import com.grumpy_phoenix.speedrun_split_tracker.data.lss.LssCodec
+import com.grumpy_phoenix.speedrun_split_tracker.data.lss.LssRun
 import com.grumpy_phoenix.speedrun_split_tracker.domain.Clock
 import com.grumpy_phoenix.speedrun_split_tracker.domain.RunFile
 import com.grumpy_phoenix.speedrun_split_tracker.domain.RunRecord
 import com.grumpy_phoenix.speedrun_split_tracker.domain.TimerPhase
 import com.grumpy_phoenix.speedrun_split_tracker.domain.TimerState
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.IOException
+import java.io.OutputStream
 import java.util.UUID
 
 enum class Screen { Library, RunFile, Timer }
@@ -45,10 +55,16 @@ class RunViewModel(
     private val repository: RunRepository,
     private val segmentRepository: SegmentRepository,
     private val wallClockMs: () -> Long = System::currentTimeMillis,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(RunUiState())
     val state: StateFlow<RunUiState> = _state.asStateFlow()
+
+    private val _messages = Channel<String>(Channel.BUFFERED)
+
+    /** One-off messages for the user, such as the outcome of an export. */
+    val messages: Flow<String> = _messages.receiveAsFlow()
 
     private var nextDraftId = 1L
     private var runsJob: Job? = null
@@ -100,6 +116,27 @@ class RunViewModel(
 
     fun deleteRun(runId: String) {
         viewModelScope.launch { repository.delete(runId) }
+    }
+
+    /** Writes the open run file, with its current segments and all runs, as a LiveSplit splits file. */
+    fun exportLss(open: () -> OutputStream) {
+        val s = _state.value
+        val file = s.runFile ?: return
+        val lss = LssRun(
+            gameName = file.name,
+            categoryName = "",
+            segmentNames = s.drafts.map { it.name.trim() }.filter { it.isNotEmpty() },
+            runs = s.runs,
+        )
+        viewModelScope.launch {
+            val message = try {
+                withContext(ioDispatcher) { open().use { LssCodec.write(lss, it) } }
+                "Exported ${lss.runs.size} runs"
+            } catch (e: IOException) {
+                "Export failed: the file could not be written"
+            }
+            _messages.send(message)
+        }
     }
 
     // --- Segment setup ---

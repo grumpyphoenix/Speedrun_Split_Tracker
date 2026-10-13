@@ -1,16 +1,25 @@
 package com.grumpy_phoenix.speedrun_split_tracker
 
+import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
+import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -18,6 +27,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.grumpy_phoenix.speedrun_split_tracker.data.RoomLibraryRepository
+import com.grumpy_phoenix.speedrun_split_tracker.data.RoomRunFileImporter
 import com.grumpy_phoenix.speedrun_split_tracker.data.RoomRunRepository
 import com.grumpy_phoenix.speedrun_split_tracker.data.RoomSegmentRepository
 import com.grumpy_phoenix.speedrun_split_tracker.data.db.AppDatabase
@@ -30,6 +40,10 @@ import com.grumpy_phoenix.speedrun_split_tracker.ui.library.LibraryViewModel
 import com.grumpy_phoenix.speedrun_split_tracker.ui.runfile.RunFileScreen
 import com.grumpy_phoenix.speedrun_split_tracker.ui.theme.Speedrun_Split_TrackerTheme
 import com.grumpy_phoenix.speedrun_split_tracker.ui.timer.TimerScreen
+import kotlinx.coroutines.flow.merge
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,10 +55,22 @@ class MainActivity : ComponentActivity() {
                 val libraryVm: LibraryViewModel = viewModel(factory = viewModelFactory)
                 val state by vm.state.collectAsState()
                 val library by libraryVm.state.collectAsState()
+                val snackbarHostState = remember { SnackbarHostState() }
+                LaunchedEffect(vm, libraryVm) {
+                    merge(vm.messages, libraryVm.messages).collect { snackbarHostState.showSnackbar(it) }
+                }
+                val importLauncher = rememberLauncherForActivityResult(OpenDocument()) { uri ->
+                    if (uri != null) libraryVm.importLss(displayName(uri)) { openInput(uri) }
+                }
+                // octet-stream, because providers append ".xml" to an "application/xml" document.
+                val exportLauncher = rememberLauncherForActivityResult(CreateDocument("application/octet-stream")) { uri ->
+                    if (uri != null) vm.exportLss { openOutput(uri) }
+                }
                 // safeDrawing includes the keyboard, so content shrinks above it instead of hiding behind it.
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     contentWindowInsets = WindowInsets.safeDrawing,
+                    snackbarHost = { SnackbarHost(snackbarHostState) },
                 ) { innerPadding ->
                     val contentModifier = Modifier.padding(innerPadding)
                     when (state.screen) {
@@ -61,6 +87,7 @@ class MainActivity : ComponentActivity() {
                                 onRenameRunFile = libraryVm::renameRunFile,
                                 onDeleteFolder = libraryVm::deleteFolder,
                                 onDeleteRunFile = libraryVm::deleteRunFile,
+                                onImportLss = { importLauncher.launch(arrayOf("*/*")) },
                                 modifier = contentModifier,
                             )
                         }
@@ -79,6 +106,10 @@ class MainActivity : ComponentActivity() {
                                 onMoveSegment = vm::moveSegment,
                                 onStart = vm::startRun,
                                 onDeleteRun = vm::deleteRun,
+                                onExportLss = {
+                                    val name = state.runFile?.name.orEmpty().ifBlank { "splits" }
+                                    exportLauncher.launch(name.replace(Regex("""[\\/:*?"<>|]"""), "_") + ".lss")
+                                },
                                 modifier = contentModifier,
                             )
                         }
@@ -110,6 +141,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun displayName(uri: Uri): String? =
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+            if (it.moveToFirst()) it.getString(0) else null
+        }
+
+    private fun openInput(uri: Uri): InputStream =
+        contentResolver.openInputStream(uri) ?: throw IOException("Cannot open $uri")
+
+    // "wt" truncates, so overwriting a longer file leaves no stale tail behind.
+    private fun openOutput(uri: Uri): OutputStream =
+        contentResolver.openOutputStream(uri, "wt") ?: throw IOException("Cannot open $uri")
+
     private companion object {
         val viewModelFactory = viewModelFactory {
             initializer {
@@ -122,7 +165,7 @@ class MainActivity : ComponentActivity() {
             }
             initializer {
                 val db = AppDatabase.get(checkNotNull(this[APPLICATION_KEY]))
-                LibraryViewModel(RoomLibraryRepository(db.libraryDao()))
+                LibraryViewModel(RoomLibraryRepository(db.libraryDao()), RoomRunFileImporter(db))
             }
         }
     }

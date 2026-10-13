@@ -60,6 +60,7 @@ fun LibraryScreen(
     onRenameRunFile: (id: Long, name: String) -> Unit,
     onDeleteFolder: (id: Long) -> Unit,
     onDeleteRunFile: (id: Long) -> Unit,
+    onImportLss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var dialog by remember { mutableStateOf<LibraryDialog?>(null) }
@@ -75,7 +76,9 @@ fun LibraryScreen(
                 style = MaterialTheme.typography.headlineMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
+            TextButton(onClick = onImportLss) { Text("Import LSS") }
         }
         if (state.path.size > 1) {
             Text(
@@ -284,6 +287,7 @@ private fun LibraryScreenPreview() {
             onRenameRunFile = { _, _ -> },
             onDeleteFolder = {},
             onDeleteRunFile = {},
+            onImportLss = {},
         )
     }
 }
