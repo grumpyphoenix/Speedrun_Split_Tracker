@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         RunEntity::class,
         RunSplitEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -36,7 +36,7 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "speedrun.db",
-            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
     }
 }
@@ -77,9 +77,12 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
                 "INSERT INTO `run_files` (`folderId`, `name`) VALUES (NULL, ?)",
                 arrayOf(IMPORTED_RUN_FILE_NAME),
             )
+            // Read the id once: last_insert_rowid() inside INSERT ... SELECT changes after every row.
+            val runFileId = db.query("SELECT last_insert_rowid()").use { it.moveToFirst(); it.getLong(0) }
             db.execSQL(
                 "INSERT INTO `run_file_segments` (`runFileId`, `position`, `name`) " +
-                    "SELECT last_insert_rowid(), `position`, `name` FROM `segment_drafts`",
+                    "SELECT ?, `position`, `name` FROM `segment_drafts`",
+                arrayOf(runFileId),
             )
         }
 
@@ -96,6 +99,16 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         db.execSQL("ALTER TABLE `runs_new` RENAME TO `runs`")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_runs_runFileId` ON `runs` (`runFileId`)")
         db.execSQL("DROP TABLE `segment_drafts`")
+    }
+}
+
+/**
+ * Removes segments whose run file doesn't exist. The first release of [MIGRATION_1_2] attached each old
+ * segment to the run file id equal to its row number, and those rows clash with new run files.
+ */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DELETE FROM `run_file_segments` WHERE `runFileId` NOT IN (SELECT `id` FROM `run_files`)")
     }
 }
 

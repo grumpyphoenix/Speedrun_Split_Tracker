@@ -10,6 +10,7 @@ import com.grumpy_phoenix.speedrun_split_tracker.data.lss.LssCodec
 import com.grumpy_phoenix.speedrun_split_tracker.data.lss.LssFormatException
 import com.grumpy_phoenix.speedrun_split_tracker.domain.Folder
 import com.grumpy_phoenix.speedrun_split_tracker.domain.RunFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -106,6 +107,11 @@ class LibraryViewModel(
                 "Import failed: ${e.message}"
             } catch (e: IOException) {
                 "Import failed: the file could not be read"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Never take the app down over a bad file or a database error.
+                "Import failed: ${e.message ?: e.javaClass.simpleName}"
             }
             _messages.send(message)
         }
