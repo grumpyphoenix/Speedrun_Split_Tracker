@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speedrun Timer</title>
+<!--
+  Google Cast Web Receiver for John's Speedrun Timer. The phone sends a snapshot (see
+  app/.../cast/CastMessage.kt) whenever the timer changes; while running, this page keeps
+  counting on its own. Open with ?demo in a desktop browser to preview without a Cast device.
+-->
+<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+<style>
+  :root {
+    --bg: #0f0d14;
+    --row: #1a1722;
+    --current: #3b2f63;
+    --text: #f2eff7;
+    --muted: #a39cb3;
+    --paused: #7d778a;
+    --accent: #d0bcff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Roboto", "Helvetica Neue", Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    /* TVs crop the edges; keep content inside the title-safe area. */
+    padding: 5vh 5vw;
+    overflow: hidden;
+  }
+  #title {
+    font-size: 5vh;
+    font-weight: 600;
+    color: var(--accent);
+    margin: 0 0 3vh;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #segments {
+    flex: 1;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .seg {
+    display: flex;
+    align-items: center;
+    gap: 3vw;
+    padding: 1.4vh 1.5vw;
+    font-size: 4vh;
+    background: var(--row);
+    border-radius: 0.8vh;
+    margin-bottom: 0.8vh;
+  }
+  .seg.current { background: var(--current); }
+  .seg .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mono { font-family: "Roboto Mono", "DejaVu Sans Mono", Consolas, monospace; }
+  .seg .segtime { color: var(--muted); }
+  .seg .split { font-weight: 600; min-width: 9ch; text-align: right; }
+  #time {
+    font-size: 16vh;
+    font-weight: 700;
+    text-align: right;
+    line-height: 1;
+    margin-top: 3vh;
+    font-variant-numeric: tabular-nums;
+  }
+  #time.paused { color: var(--paused); }
+  #idle {
+    flex: 1;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 6vh;
+    color: var(--muted);
+  }
+  body.idle #idle { display: flex; }
+  body.idle #segments, body.idle #time { display: none; }
+</style>
+</head>
+<body class="idle">
+  <h1 id="title"></h1>
+  <div id="idle">Warte auf Start…</div>
+  <ul id="segments"></ul>
+  <div id="time" class="mono">0:00.00</div>
+
+<script>
+  const NAMESPACE = 'urn:x-cast:com.grumpy_phoenix.speedrun_split_tracker';
+
+  // Last snapshot from the phone and when it arrived on our clock.
+  let state = null;
+  let receivedAt = 0;
+  let rowsKey = '';
+
+  const titleEl = document.getElementById('title');
+  const listEl = document.getElementById('segments');
+  const timeEl = document.getElementById('time');
+
+  /** Same format as domain/TimeFormat.kt: m:ss.cc, or h:mm:ss.cc from one hour up. */
+  function formatTime(ms) {
+    const total = Math.max(0, Math.floor(ms));
+    const centis = Math.floor(total / 10) % 100;
+    const seconds = Math.floor(total / 1000) % 60;
+    const minutes = Math.floor(total / 60000) % 60;
+    const hours = Math.floor(total / 3600000);
+    const two = n => String(n).padStart(2, '0');
+    return hours > 0
+      ? `${hours}:${two(minutes)}:${two(seconds)}.${two(centis)}`
+      : `${minutes}:${two(seconds)}.${two(centis)}`;
+  }
+
+  function elapsedNow() {
+    if (!state) return 0;
+    if (state.phase === 'Running') return state.elapsedMs + (performance.now() - receivedAt);
+    return state.elapsedMs;
+  }
+
+  function apply(message) {
+    state = typeof message === 'string' ? JSON.parse(message) : message;
+    receivedAt = performance.now();
+    titleEl.textContent = state.title || '';
+    document.body.classList.toggle('idle', !state.phase);
+    timeEl.classList.toggle('paused', state.phase === 'Paused');
+    buildRows();
+  }
+
+  /** Rebuilds the list only when segments or splits changed; times tick in render(). */
+  function buildRows() {
+    const key = JSON.stringify([state.segments, state.splitTimesMs, state.phase]);
+    if (key === rowsKey) return;
+    rowsKey = key;
+    listEl.replaceChildren();
+    const splits = state.splitTimesMs || [];
+    const started = state.phase && state.phase !== 'NotStarted';
+    (state.segments || []).forEach((name, i) => {
+      const li = document.createElement('li');
+      li.className = 'seg' + (started && i === splits.length ? ' current' : '');
+      const split = splits[i];
+      const segment = split === undefined ? undefined : split - (i === 0 ? 0 : splits[i - 1]);
+      li.innerHTML = '<span class="name"></span><span class="segtime mono"></span><span class="split mono"></span>';
+      li.querySelector('.name').textContent = name;
+      li.querySelector('.segtime').textContent = segment === undefined ? '-' : formatTime(segment);
+      li.querySelector('.split').textContent = split === undefined ? '-' : formatTime(split);
+      listEl.appendChild(li);
+    });
+    const current = listEl.querySelector('.current');
+    if (current) current.scrollIntoView({ block: 'center' });
+  }
+
+  function render() {
+    if (state && state.phase) {
+      const elapsed = elapsedNow();
+      timeEl.textContent = formatTime(elapsed);
+      const current = listEl.querySelector('.current .segtime');
+      if (current) {
+        const splits = state.splitTimesMs || [];
+        current.textContent = formatTime(elapsed - (splits[splits.length - 1] || 0));
+      }
+    }
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+
+  if (new URLSearchParams(location.search).has('demo') || typeof cast === 'undefined') {
+    // Browser preview: a run that has just split once.
+    apply({
+      title: 'Demo Run',
+      phase: 'Running',
+      segments: ['Tutorial', 'Forest', 'Castle', 'Final Boss'],
+      splitTimesMs: [41200],
+      elapsedMs: 95430,
+    });
+  } else {
+    const context = cast.framework.CastReceiverContext.getInstance();
+    context.addCustomMessageListener(NAMESPACE, event => apply(event.data));
+    const options = new cast.framework.CastReceiverOptions();
+    // There is no media playing, so without this the receiver would close after a few minutes.
+    options.disableIdleTimeout = true;
+    options.skipPlayersLoad = true;
+    options.customNamespaces = { [NAMESPACE]: cast.framework.system.MessageType.JSON };
+    context.start(options);
+  }
+</script>
+</body>
+</html>

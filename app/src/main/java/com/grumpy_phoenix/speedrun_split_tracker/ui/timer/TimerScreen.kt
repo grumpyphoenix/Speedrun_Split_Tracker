@@ -45,6 +45,8 @@ fun TimerScreen(
     onReset: () -> Unit,
     onEditSegments: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Shown at the top end, above the time; used for the Cast button. */
+    topBarAction: @Composable () -> Unit = {},
 ) {
     // Recompute every frame while running; otherwise the time is static.
     val elapsedMs by produceState(timer.elapsedMs(nowMs()), timer) {
@@ -65,6 +67,9 @@ fun TimerScreen(
     }
 
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
+        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            topBarAction()
+        }
         Text(
             text = formatTime(elapsedMs),
             fontFamily = FontFamily.Monospace,

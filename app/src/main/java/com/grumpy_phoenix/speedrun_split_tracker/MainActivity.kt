@@ -3,7 +3,6 @@ package com.grumpy_phoenix.speedrun_split_tracker
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -22,6 +21,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.collectAsState
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
+import com.grumpy_phoenix.speedrun_split_tracker.cast.TimerCaster
+import com.grumpy_phoenix.speedrun_split_tracker.ui.cast.CastButton
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -45,16 +50,27 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 
-class MainActivity : ComponentActivity() {
+// FragmentActivity because the Cast button opens its device picker as a DialogFragment.
+class MainActivity : FragmentActivity() {
+    private lateinit var caster: TimerCaster
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        caster = TimerCaster(this, SystemElapsedClock, lifecycleScope)
         setContent {
             Speedrun_Split_TrackerTheme {
                 val vm: RunViewModel = viewModel(factory = viewModelFactory)
                 val libraryVm: LibraryViewModel = viewModel(factory = viewModelFactory)
                 val state by vm.state.collectAsState()
                 val library by libraryVm.state.collectAsState()
+                val castAvailable by caster.available.collectAsState()
+                LaunchedEffect(vm) {
+                    vm.state
+                        .map { s -> s.runFile?.name to s.timer.takeIf { s.screen == Screen.Timer } }
+                        .distinctUntilChanged()
+                        .collect { (title, timer) -> caster.publish(title, timer) }
+                }
                 val snackbarHostState = remember { SnackbarHostState() }
                 LaunchedEffect(vm, libraryVm) {
                     merge(vm.messages, libraryVm.messages).collect { snackbarHostState.showSnackbar(it) }
@@ -133,12 +149,18 @@ class MainActivity : ComponentActivity() {
                                 onReset = vm::reset,
                                 onEditSegments = vm::backToSetup,
                                 modifier = contentModifier,
+                                topBarAction = { if (castAvailable) CastButton() },
                             )
                         }
                     }
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        caster.release()
+        super.onDestroy()
     }
 
     private fun displayName(uri: Uri): String? =

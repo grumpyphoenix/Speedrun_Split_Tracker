@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Speedrun_Split_Tracker" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- AppCompat because the Cast device picker (MediaRouter) requires it; Compose draws the rest. -->
+    <style name="Theme.Speedrun_Split_Tracker" parent="Theme.AppCompat.DayNight.NoActionBar" />
 </resources>

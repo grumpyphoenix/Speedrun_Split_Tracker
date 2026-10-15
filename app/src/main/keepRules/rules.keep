@@ -10,3 +10,5 @@
 #-keepclassmembers class fqcn.of.javascript.interface.for.webview {
 #   public *;
 #}
+# The Cast framework instantiates the options provider by the name in the manifest meta-data.
+-keep class com.grumpy_phoenix.speedrun_split_tracker.cast.CastOptionsProvider { <init>(); }
