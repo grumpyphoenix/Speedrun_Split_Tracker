@@ -4,6 +4,9 @@ package com.grumpy_phoenix.speedrun_split_tracker.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.grumpy_phoenix.speedrun_split_tracker.data.ActiveAttempt
+import com.grumpy_phoenix.speedrun_split_tracker.data.ActiveAttemptStore
+import com.grumpy_phoenix.speedrun_split_tracker.data.InMemoryActiveAttemptStore
 import com.grumpy_phoenix.speedrun_split_tracker.data.RunRepository
 import com.grumpy_phoenix.speedrun_split_tracker.data.SegmentRepository
 import com.grumpy_phoenix.speedrun_split_tracker.data.lss.LssCodec
@@ -24,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
@@ -54,6 +58,7 @@ class RunViewModel(
     val clock: Clock,
     private val repository: RunRepository,
     private val segmentRepository: SegmentRepository,
+    private val activeAttemptStore: ActiveAttemptStore = InMemoryActiveAttemptStore(),
     private val wallClockMs: () -> Long = System::currentTimeMillis,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
@@ -69,7 +74,28 @@ class RunViewModel(
     private var nextDraftId = 1L
     private var runsJob: Job? = null
 
+    // Identity of the current attempt, so re-saving (e.g. after undoing the final split) replaces it.
+    private var attemptId = UUID.randomUUID().toString()
+    private var attemptStartedAtEpochMs = 0L
+
     init {
+        viewModelScope.launch {
+            // Restore first, so the empty initial state can't clear the stored attempt.
+            withContext(ioDispatcher) { activeAttemptStore.load() }?.let { saved ->
+                if (saved.sameBoot) restoreAttempt(saved.attempt) else abandonAttempt(saved.attempt)
+            }
+            // Keep a started, unfinished attempt stored, so a killed process can pick it up again.
+            _state.map { s -> s.runFile to s.timer }
+                .distinctUntilChanged()
+                .collect { (runFile, timer) ->
+                    val inProgress = timer.phase == TimerPhase.Running || timer.phase == TimerPhase.Paused
+                    if (runFile != null && inProgress) {
+                        activeAttemptStore.save(ActiveAttempt(runFile, attemptId, attemptStartedAtEpochMs, timer))
+                    } else {
+                        activeAttemptStore.clear()
+                    }
+                }
+        }
         viewModelScope.launch {
             // Persist edits once typing pauses, rather than on every keystroke.
             // runFile and drafts always change together, so a pair never mixes two files.
@@ -80,9 +106,27 @@ class RunViewModel(
         }
     }
 
-    // Identity of the current attempt, so re-saving (e.g. after undoing the final split) replaces it.
-    private var attemptId = UUID.randomUUID().toString()
-    private var attemptStartedAtEpochMs = 0L
+    /** Reopens an attempt from before the process was killed, on the timer screen. */
+    private suspend fun restoreAttempt(attempt: ActiveAttempt) {
+        attemptId = attempt.attemptId
+        attemptStartedAtEpochMs = attempt.startedAtEpochMs
+        val names = segmentRepository.load(attempt.runFile.id).ifEmpty { listOf("") }
+        _state.update {
+            it.copy(
+                screen = Screen.Timer,
+                runFile = attempt.runFile,
+                drafts = names.map { name -> SegmentDraft(nextDraftId++, name) },
+                timer = attempt.timer,
+            )
+        }
+        observeRuns(attempt.runFile)
+    }
+
+    /** After a reboot the stored times no longer match the clock; keep the splits as a reset run. */
+    private suspend fun abandonAttempt(attempt: ActiveAttempt) {
+        repository.save(attempt.runFile.id, attempt.toRecord())
+        activeAttemptStore.clear()
+    }
 
     // --- Run file ---
 
@@ -97,6 +141,10 @@ class RunViewModel(
                 )
             }
         }
+        observeRuns(runFile)
+    }
+
+    private fun observeRuns(runFile: RunFile) {
         runsJob?.cancel()
         runsJob = viewModelScope.launch {
             repository.runs(runFile.id).collect { runs -> _state.update { it.copy(runs = runs) } }
@@ -210,13 +258,7 @@ class RunViewModel(
         val file = s.runFile ?: return
         val timer = s.timer
         if (!timer.hasStarted) return
-        val record = RunRecord(
-            id = attemptId,
-            startedAtEpochMs = attemptStartedAtEpochMs,
-            segmentNames = timer.segments,
-            splitTimesMs = timer.splitTimesMs,
-            completed = timer.phase == TimerPhase.Finished,
-        )
+        val record = ActiveAttempt(file, attemptId, attemptStartedAtEpochMs, timer).toRecord()
         viewModelScope.launch { repository.save(file.id, record) }
     }
 

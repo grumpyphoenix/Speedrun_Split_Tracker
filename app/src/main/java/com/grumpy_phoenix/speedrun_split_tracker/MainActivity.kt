@@ -31,6 +31,7 @@ import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.AP
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.grumpy_phoenix.speedrun_split_tracker.data.PrefsActiveAttemptStore
 import com.grumpy_phoenix.speedrun_split_tracker.data.RoomLibraryRepository
 import com.grumpy_phoenix.speedrun_split_tracker.data.RoomRunFileImporter
 import com.grumpy_phoenix.speedrun_split_tracker.data.RoomRunRepository
@@ -178,11 +179,13 @@ class MainActivity : FragmentActivity() {
     private companion object {
         val viewModelFactory = viewModelFactory {
             initializer {
-                val db = AppDatabase.get(checkNotNull(this[APPLICATION_KEY]))
+                val app = checkNotNull(this[APPLICATION_KEY])
+                val db = AppDatabase.get(app)
                 RunViewModel(
                     clock = SystemElapsedClock,
                     repository = RoomRunRepository(db.runDao()),
                     segmentRepository = RoomSegmentRepository(db.segmentDao()),
+                    activeAttemptStore = PrefsActiveAttemptStore(app),
                 )
             }
             initializer {

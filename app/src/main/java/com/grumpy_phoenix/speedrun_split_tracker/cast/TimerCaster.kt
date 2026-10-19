@@ -85,9 +85,17 @@ class TimerCaster(context: Context, private val clock: Clock, private val scope:
 
     private fun send() {
         val session = session ?: return
+        // While the connection stalls the session isn't suspended yet, but sending would throw.
+        // The next keep-alive or the resume after reconnecting sends the current state again.
+        if (!session.isConnected) return
         val message = castMessageJson(title, timer, clock.nowMs())
-        session.sendMessage(CAST_NAMESPACE, message).setResultCallback { status ->
-            if (!status.isSuccess) Log.w(TAG, "Sending to the receiver failed: $status")
+        try {
+            session.sendMessage(CAST_NAMESPACE, message).setResultCallback { status ->
+                if (!status.isSuccess) Log.w(TAG, "Sending to the receiver failed: $status")
+            }
+        } catch (e: RuntimeException) {
+            // The connection can drop between the check and the send; never let that end the run.
+            Log.w(TAG, "Sending to the receiver failed", e)
         }
     }
 
